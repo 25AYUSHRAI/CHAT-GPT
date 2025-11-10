@@ -4,6 +4,10 @@ const cookie =  require("cookie");
 const userModel = require("../models/user.model");
 const aiService = require("../services/ai.service")
 const messageModel = require("../models/message.model");
+const {createMemory,queryMemory} = require("../services/vector.service");
+const { chat } = require("@pinecone-database/pinecone/dist/assistant/data/chat");
+const { text } = require("express");
+
 async function initSocketServer(httpServer){
     const io = new Server(httpServer,{});
     io.use(async (socket,next)=>{
@@ -31,21 +35,54 @@ async function initSocketServer(httpServer){
             content:messagePayload.content,
             role:"user"
         })
-        const chatHistory = await messageModel.find({
+        const vectors = await aiService.generateVector(messagePayload.content)
+        
+         await createMemory({
+            vectors,
+            messageId:"15613556",
+            metadata:{
+                chat:messagePayload.chat,
+                text:messagePayload.content,
+                user:socket.user._id
+            }
+         })
+        
+         const memory = await queryMemory({
+            queryVector:vectors,
+            limit:1,
+            metadata:{}
+         })
+         console.log(memory)
+        const chatHistory = (await messageModel.find({
             chat:messagePayload.chat
-        })
+        }).sort({createdAt:-1}).limit(4).lean()).reverse()
         const response = await aiService.generateResponse(chatHistory.map(item =>{
             return {
                 role:item.role,
                 parts:[{text:item.content}]
             }
-        }));
-        await messageModel.create({
+        })); 
+
+        const responseVector = await aiService.generateVector(response)
+
+        const responseMessage =await messageModel.create({
             chat:messagePayload.chat,
             user:socket.user._id,
             content:response,
             role:"model"
         })
+
+        await createMemory({
+            vectors:responseVector,
+            messageId:responseMessage._id,
+            messageId:"79894165",
+            metadata:{
+                chat:messagePayload.chat,
+                text:response,
+                user:socket.user._id
+            }
+        })
+        
         socket.emit("ai-response",{
             content:response,
             chat:messagePayload.chat 
