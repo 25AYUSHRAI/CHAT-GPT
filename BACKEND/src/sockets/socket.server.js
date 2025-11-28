@@ -12,6 +12,7 @@ const { text } = require("express");
 
 async function initSocketServer(httpServer) {
   const io = new Server(httpServer, {});
+
   io.use(async (socket, next) => {
     const cookies = cookie.parse(socket.handshake.headers?.cookie || " ");
 
@@ -27,15 +28,18 @@ async function initSocketServer(httpServer) {
       next(new Error("Authentication error: No Token provided"));
     }
   });
+
   io.on("connection", (socket) => {
     socket.on("ai-message", async (messagePayload) => {
-      const userMessage = await messageModel.create({
-        chat: messagePayload.chat,
-        user: socket.user._id,
-        content: messagePayload.content,
-        role: "user",
-      });
-      const vectors = await aiService.generateVector(messagePayload.content);
+      const [userMessage, vectors] = await Promise.all([
+        messageModel.create({
+          chat: messagePayload.chat,
+          user: socket.user._id,
+          content: messagePayload.content,
+          role: "user",
+        }),
+        aiService.generateVector(messagePayload.content),
+      ]);
 
       await createMemory({
         vectors,
@@ -47,21 +51,22 @@ async function initSocketServer(httpServer) {
         },
       });
 
-      const memory = await queryMemory({
-        queryVector: vectors,
-        limit: 3,
-        metadata: {},
-      });
-      console.log(memory);
-      const chatHistory = (
-        await messageModel
+      const [memory, chatHistory] = await Promise.all([
+        queryMemory({
+          queryVector: vectors,
+          limit: 3,
+          metadata: {},
+        }),
+
+        messageModel
           .find({
             chat: messagePayload.chat,
           })
           .sort({ createdAt: -1 })
           .limit(20)
           .lean()
-      ).reverse();
+          .then((res) => res.reverse()), // ✅ FIXED
+      ]);
 
       const stm = chatHistory.map((item) => {
         return {
@@ -69,9 +74,10 @@ async function initSocketServer(httpServer) {
           parts: [{ text: item.content }],
         };
       });
+
       const ltm = [
         {
-          role: "user", // GenAI doesn't accept "system" role; present context as a user message
+          role: "user",
           parts: [
             {
               text: `Context (previous messages and memories): ${memory
@@ -82,18 +88,22 @@ async function initSocketServer(httpServer) {
         },
       ];
 
-      console.log(ltm[0]);
-      console.log(stm);
       const response = await aiService.generateResponse([...ltm, ...stm]);
 
-      const responseVector = await aiService.generateVector(response);
-
-      const responseMessage = await messageModel.create({
-        chat: messagePayload.chat,
-        user: socket.user._id,
+      socket.emit("ai-response", {
         content: response,
-        role: "model",
+        chat: messagePayload.chat,
       });
+
+      const [responseMessage, responseVector] = await Promise.all([
+        messageModel.create({
+          chat: messagePayload.chat,
+          user: socket.user._id,
+          content: response,
+          role: "model",
+        }),
+        aiService.generateVector(response),
+      ]);
 
       await createMemory({
         vectors: responseVector,
@@ -103,11 +113,6 @@ async function initSocketServer(httpServer) {
           text: response,
           user: socket.user._id,
         },
-      });
-
-      socket.emit("ai-response", {
-        content: response,
-        chat: messagePayload.chat,
       });
     });
   });
