@@ -1,0 +1,28 @@
+:root {
+  /* Light theme (default) */
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --text: #0f1724;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-contrast: #ffffff;
+  --border: #e6e9ef;
+  --input-bg: #f8fafc;
+  --shadow: 0 6px 18px rgba(12, 14, 20, 0.06);
+  --radius: 12px;
+  --gap: 12px;
+  --max-content-width: 920px;
+}
+
+/* Dark theme override — add .theme-dark to <html> or <body> to switch */
+.theme-dark {
+  --bg: #0b1020;
+  --surface: #0f1724;
+  --text: #e6edf3;
+  --muted: #9aa6b2;
+  --primary: #3b82f6;
+  --primary-contrast: #071233;
+  --border: #1f2937;
+  --input-bg: #0b1220;
+  --shadow: 0 8px 24px rgba(2,6,23,0.6);
+}
